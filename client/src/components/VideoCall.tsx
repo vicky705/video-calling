@@ -46,7 +46,11 @@ const VideoCall: React.FC = () => {
   const callUser = async (id: string) => {
     if (!stream) return;
 
-    const pc = new RTCPeerConnection();
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+      ]
+    });
     peerConnection.current = pc;
 
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
