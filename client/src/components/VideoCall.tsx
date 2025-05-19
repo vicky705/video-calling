@@ -5,7 +5,7 @@ import UserControls from './UserControls';
 
 type SignalData = any;
 
-const socket = io('http://localhost:5000');
+const socket = io('https://video-calling-xhlp.onrender.com');
 
 const VideoCall: React.FC = () => {
   const [yourID, setYourID] = useState<string>('');
