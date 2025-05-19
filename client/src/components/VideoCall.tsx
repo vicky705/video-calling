@@ -1,21 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import Peer from 'simple-peer';
 import UserControls from './UserControls';
-
-type SignalData = any;
 
 const socket = io('https://video-calling-xhlp.onrender.com');
 
 const VideoCall: React.FC = () => {
-  const [yourID, setYourID] = useState<string>('');
-  const [caller, setCaller] = useState<string>('');
-  const [receivingCall, setReceivingCall] = useState<boolean>(false);
-  const [callerSignal, setCallerSignal] = useState<SignalData>();
-  const [callAccepted, setCallAccepted] = useState<boolean>(false);
-  const [stream, setStream] = useState<MediaStream>();
-  const [callTo, setCallTo] = useState<string>('');
-  const connectionRef = useRef<Peer.Instance | null>(null);
+  const [yourID, setYourID] = useState('');
+  const [caller, setCaller] = useState('');
+  const [receivingCall, setReceivingCall] = useState(false);
+  const [offer, setOffer] = useState<RTCSessionDescriptionInit | null>(null);
+  const [callAccepted, setCallAccepted] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [callTo, setCallTo] = useState('');
+
+  const peerConnection = useRef<RTCPeerConnection | null>(null);
 
   useEffect(() => {
     navigator.mediaDevices.getUserMedia({ video: false, audio: true })
@@ -27,58 +25,82 @@ const VideoCall: React.FC = () => {
       setYourID(id);
     });
 
-    socket.on('receive-call', (data: { from: string; signal: SignalData }) => {
+    socket.on('receive-call', async (data: { from: string; offer: RTCSessionDescriptionInit }) => {
       setReceivingCall(true);
       setCaller(data.from);
-      setCallerSignal(data.signal);
+      setOffer(data.offer);
+    });
+
+    socket.on('call-accepted', async (answer: RTCSessionDescriptionInit) => {
+      if (!peerConnection.current) return;
+      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
+      setCallAccepted(true);
+    });
+
+    socket.on('ice-candidate', async (candidate: RTCIceCandidateInit) => {
+      if (!peerConnection.current) return;
+      await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
     });
   }, []);
 
-  const callUser = (id: string) => {
+  const callUser = async (id: string) => {
     if (!stream) return;
 
-    const peer = new Peer({ initiator: true, trickle: false, stream });
+    const pc = new RTCPeerConnection();
+    peerConnection.current = pc;
 
-    peer.on('signal', (signal: SignalData) => {
-      socket.emit('call-user', {
-        to: id,
-        from: yourID,
-        signal,
-      });
-    });
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-    peer.on('stream', (remoteStream: MediaStream) => {
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('ice-candidate', { to: id, candidate: event.candidate });
+      }
+    };
+
+    pc.ontrack = (event) => {
       const audio = document.createElement('audio');
-      audio.srcObject = remoteStream;
-      audio.play();
-    });
+      audio.srcObject = event.streams[0];
+      audio.autoplay = true;
+      document.body.appendChild(audio);
+    };
 
-    socket.on('call-accepted', (signal: SignalData) => {
-      setCallAccepted(true);
-      peer.signal(signal);
-    });
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
 
-    connectionRef.current = peer;
+    socket.emit('call-user', {
+      to: id,
+      from: yourID,
+      offer,
+    });
   };
 
-  const answerCall = () => {
-    if (!stream) return;
+  const answerCall = async () => {
+    if (!stream || !offer) return;
 
-    setCallAccepted(true);
-    const peer = new Peer({ initiator: false, trickle: false, stream });
+    const pc = new RTCPeerConnection();
+    peerConnection.current = pc;
 
-    peer.on('signal', (signal: SignalData) => {
-      socket.emit('answer-call', { signal, to: caller });
-    });
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-    peer.on('stream', (remoteStream: MediaStream) => {
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('ice-candidate', { to: caller, candidate: event.candidate });
+      }
+    };
+
+    pc.ontrack = (event) => {
       const audio = document.createElement('audio');
-      audio.srcObject = remoteStream;
-      audio.play();
-    });
+      audio.srcObject = event.streams[0];
+      audio.autoplay = true;
+      document.body.appendChild(audio);
+    };
 
-    peer.signal(callerSignal);
-    connectionRef.current = peer;
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    socket.emit('answer-call', { to: caller, answer });
+    setCallAccepted(true);
   };
 
   return (

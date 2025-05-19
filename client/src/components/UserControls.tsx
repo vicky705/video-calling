@@ -9,7 +9,6 @@ type Props = {
 const UserControls: React.FC<Props> = ({ callTo, setCallTo, callUser }) => {
   return (
     <div>
-      <h4>Enter Room Id</h4>
       <input
         type="text"
         placeholder="Enter user ID to call"

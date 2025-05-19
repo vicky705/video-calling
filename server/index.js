@@ -21,13 +21,17 @@ io.on('connection', (socket) => {
 
   socket.on('call-user', (data) => {
     io.to(data.to).emit('receive-call', {
-      signal: data.signal,
+      offer: data.offer,
       from: data.from,
     });
   });
 
   socket.on('answer-call', (data) => {
-    io.to(data.to).emit('call-accepted', data.signal);
+    io.to(data.to).emit('call-accepted', data.answer);
+  });
+
+  socket.on('ice-candidate', (data) => {
+    io.to(data.to).emit('ice-candidate', data.candidate);
   });
 
   socket.on('disconnect', () => {
